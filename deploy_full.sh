@@ -1,20 +1,25 @@
 #!/bin/bash
 
 # --- 1. ENVIRONMENT & AUTHENTICATION ---
-# Ensure the script stops if any command fails
 set -e
 
-# Automatically detect the Project ID
+# Try to detect the Project ID automatically
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project 2>/dev/null)
 
-if [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
-    echo "❌ Error: No Google Cloud Project detected."
-    echo "Please run: gcloud config set project [PROJECT_ID]"
-    exit 1
+# FALLBACK: If Project ID is empty, list projects and ask the user
+if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; then
+    echo "⚠️  No default Google Cloud Project detected."
+    echo "----------------------------------------------------------"
+    echo "Your available projects:"
+    gcloud projects list --format="table(projectId, name)"
+    echo "----------------------------------------------------------"
+    read -p "Please copy and paste your Project ID from the list above: " GOOGLE_CLOUD_PROJECT
+    
+    # Set it for the session
+    gcloud config set project $GOOGLE_CLOUD_PROJECT
 fi
 
-# Ensure user is authenticated for Terraform's GCS backend
-# This opens a login link if the session is unauthenticated
+# Authenticate the session
 echo ">>> Authenticating session..."
 gcloud auth application-default login --quiet --no-launch-browser || gcloud auth application-default login --quiet
 
@@ -30,7 +35,6 @@ echo ""
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
-# Calculate Client Hash for file paths
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 
 echo "----------------------------------------------------------"
@@ -41,14 +45,11 @@ echo "----------------------------------------------------------"
 
 # --- 3. BINARY PREPARATION ---
 echo ">>> Fetching latest binaries from public release..."
-# We download these to the local folder so Terraform can see them if needed
-# though the VM usually pulls them directly from the public bucket.
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotWorker.exe .
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotSetup.exe .
 
 # --- 4. TERRAFORM INITIALIZATION ---
 echo ">>> Initializing Terraform..."
-# -reconfigure ensures that a new user isn't stuck with your old session data
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
   -backend-config="prefix=terraform/state/$SERVER_NAME"
@@ -70,7 +71,6 @@ echo "=========================================================="
 terraform output rdp_address
 
 echo ">>> Cleaning up temporary local files..."
-# Move back to home and remove the ephemeral cloudshell_open folder
 cd ~
-rm -rf ~/cloudshell_open/slingshot-production
+rm -rf "$OLDPWD"
 echo ">>> Done. Your workspace is clean."
