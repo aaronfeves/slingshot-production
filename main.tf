@@ -43,9 +43,8 @@ resource "google_compute_instance" "slingshot_server" {
           # 3. PULL BOTH BINARIES (Must be in the bucket)
           gsutil cp gs://${var.master_bucket}/binaries/SlingshotWorker.exe C:\Slingshot\SlingshotWorker.exe
           gsutil cp gs://${var.master_bucket}/installers/SlingshotSetup.exe C:\SlingshotInstall\SlingshotSetup.exe
-          
-          # 4. RUN SETUP WITH THE 3 REQUIRED ARGUMENTS
-          # Your C# code: Usage: SlingshotSetup.exe <Email> <NTPass> <AdminPass> 
+
+          # This satisfies the 'if (args.Length < 3)' check in your C# code
           $exePath = "C:\SlingshotInstall\SlingshotSetup.exe"
           $args = "${var.nt_username} ${var.nt_password} ${var.admin_password}"
           Start-Process -FilePath $exePath -ArgumentList $args -Wait
