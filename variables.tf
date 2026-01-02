@@ -38,9 +38,14 @@ variable "machine_type" {
   default     = "e2-highmem-2"
 }
 
-# Evergreen bucket path - user doesn't need to change this
 variable "master_bucket" {
   description = "Public bucket containing the binaries"
   type        = string
   default     = "slingshot-public-release"
+}
+
+# ADD THIS BLOCK - This was the missing piece causing the error
+variable "client_hash" {
+  description = "Unique hash for user folder isolation"
+  type        = string
 }
