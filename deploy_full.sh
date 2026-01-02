@@ -23,6 +23,13 @@ fi
 echo ">>> Authenticating session..."
 gcloud auth application-default login --quiet --no-launch-browser || gcloud auth application-default login --quiet
 
+# Force Terraform to see the credentials we just created
+export GOOGLE_APPLICATION_CREDENTIALS=$(gcloud auth application-default print-access-token --format='value(access_token)' 2>/dev/null && echo "/home/$(whoami)/.config/gcloud/application_default_credentials.json")
+
+# Alternative: Link the tmp file to the expected location
+mkdir -p ~/.config/gcloud
+cp /tmp/tmp.*/application_default_credentials.json ~/.config/gcloud/application_default_credentials.json 2>/dev/null || true
+
 # --- 2. USER INPUTS ---
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
