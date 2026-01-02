@@ -10,7 +10,7 @@ if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; t
     gcloud projects list --format="table(projectId, name)"
     echo "----------------------------------------------------------"
     read -p "Please copy and paste your Project ID from the list above: " GOOGLE_CLOUD_PROJECT
-    gcloud config set project $GOOGLE_CLOUD_PROJECT
+    gcloud config set project "$GOOGLE_CLOUD_PROJECT"
 fi
 
 # --- 2. AUTHENTICATION & CREDENTIAL MAPPING ---
@@ -26,18 +26,24 @@ if [ -n "$FOUND_CRED" ]; then
     chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
 fi
 
-# --- 3. USER INPUTS (WITH VALIDATION) ---
+# --- 3. API ENABLEMENT (Fixes the Service Disabled Error) ---
+echo ">>> Ensuring required Google Cloud APIs are enabled..."
+# This specifically fixes the 'Cloud Resource Manager' error Metalyndi saw
+gcloud services enable cloudresourcemanager.googleapis.com \
+                       compute.googleapis.com \
+                       iam.googleapis.com \
+                       --quiet
+
+# --- 4. USER INPUTS (WITH VALIDATION) ---
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
 
-# Prevent blank email/hash errors
 while [ -z "$NT_USER" ]; do
     read -p "Enter NinjaTrader Email: " NT_USER
     if [ -z "$NT_USER" ]; then echo "❌ Email cannot be blank!"; fi
 done
 
-# Prevent blank server name
 while [ -z "$SERVER_NAME" ]; do
     read -p "Enter Server Name (e.g., modelv36): " SERVER_NAME
     if [ -z "$SERVER_NAME" ]; then echo "❌ Server Name cannot be blank!"; fi
@@ -57,28 +63,27 @@ echo " STORAGE PATH:  clients/client_$CLIENT_HASH/$SERVER_NAME"
 echo " TARGET PROJECT: $GOOGLE_CLOUD_PROJECT"
 echo "----------------------------------------------------------"
 
-# --- 4. BINARY PREPARATION ---
+# --- 5. BINARY PREPARATION ---
 echo ">>> Fetching latest binaries from public release..."
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotWorker.exe .
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotSetup.exe .
 
-# --- 5. TERRAFORM INITIALIZATION (STRICT CHECK) ---
+# --- 6. TERRAFORM INITIALIZATION ---
 echo ">>> Initializing Terraform Backend..."
-# We use || exit 1 to ensure we don't proceed if the bucket is unreachable
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
   -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME" || {
-    echo "❌ ERROR: Failed to connect to the state bucket. Deployment aborted."
+    echo "❌ ERROR: Failed to connect to the state bucket."
     exit 1
   }
 
-# --- 6. INFRASTRUCTURE DEPLOYMENT (WITH RETRY LOOP) ---
+# --- 7. INFRASTRUCTURE DEPLOYMENT (WITH RETRY LOOP) ---
 echo ">>> Applying Infrastructure..."
 MAX_RETRIES=3
 COUNT=0
 SUCCESS=false
 
-while [ $COUNT -lt $MAX_RETRIES ]; do
+while [ "$COUNT" -lt "$MAX_RETRIES" ]; do
   if terraform apply -auto-approve \
     -var="project_id=$GOOGLE_CLOUD_PROJECT" \
     -var="server_name=$SERVER_NAME" \
@@ -90,7 +95,7 @@ while [ $COUNT -lt $MAX_RETRIES ]; do
       break
   else
       COUNT=$((COUNT+1))
-      echo "⚠️  API Timeout or Connection Refused. Retrying ($COUNT/$MAX_RETRIES) in 10s..."
+      echo "⚠️  Deployment hiccup. Retrying ($COUNT/$MAX_RETRIES) in 10s..."
       sleep 10
   fi
 done
@@ -100,7 +105,7 @@ if [ "$SUCCESS" = false ]; then
     exit 1
 fi
 
-# --- 7. CLEANUP ---
+# --- 8. CLEANUP ---
 echo "=========================================================="
 echo "✅ DEPLOYMENT COMPLETE"
 echo "=========================================================="
