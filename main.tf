@@ -90,16 +90,3 @@ resource "google_compute_address" "static_ip" {
   name   = "${var.server_name}-ip"
   region = join("-", slice(split("-", var.zone), 0, 2))
 }
-
-variable "project_id" {}
-variable "server_name" {}
-variable "nt_username" {}
-variable "nt_password" {}
-variable "admin_password" {}
-variable "zone" { default = "us-central1-a" }
-variable "machine_type" { default = "e2-standard-4" }
-variable "master_bucket" { default = "slingshot-public-release" }
-
-output "rdp_address" {
-  value = google_compute_address.static_ip.address
-}
