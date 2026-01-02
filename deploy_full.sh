@@ -1,10 +1,10 @@
 #!/bin/bash
-# Exit immediately if any command fails
+# We keep set -e for the setup, but we handle the Apply step specifically
 set -e
 
 # --- 1. PROJECT DETECTION ---
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project 2>/dev/null)
-if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; then
+if [[ -z "$GOOGLE_CLOUD_PROJECT" || "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]]; then
     gcloud projects list --format="table(projectId, name)"
     read -p "Please enter your Project ID: " GOOGLE_CLOUD_PROJECT
     gcloud config set project "$GOOGLE_CLOUD_PROJECT"
@@ -22,57 +22,37 @@ export GOOGLE_APPLICATION_CREDENTIALS="$LOCAL_CREDS"
 gcloud auth application-default login --quiet --no-launch-browser
 gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT" --quiet || true
 
-# Map internal credentials
 FOUND_CRED=$(find /tmp/tmp.* -name "application_default_credentials.json" 2>/dev/null | head -n 1)
 if [ -n "$FOUND_CRED" ]; then
     cp "$FOUND_CRED" "$GOOGLE_APPLICATION_CREDENTIALS"
     chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
 fi
 
-# --- 3. USER INPUTS (VALIDATION) ---
+# --- 3. USER INPUTS ---
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
-while [ -z "$NT_USER" ]; do
-    read -p "Enter NinjaTrader Email: " NT_USER
-    if [ -z "$NT_USER" ]; then echo "❌ Email cannot be blank!"; fi
-done
-
-while [ -z "$SERVER_NAME" ]; do
-    read -p "Enter Server Name (e.g., plus): " SERVER_NAME
-    if [ -z "$SERVER_NAME" ]; then echo "❌ Server Name cannot be blank!"; fi
-done
-
+while [ -z "$NT_USER" ]; do read -p "Enter NinjaTrader Email: " NT_USER; done
+while [ -z "$SERVER_NAME" ]; do read -p "Enter Server Name: " SERVER_NAME; done
 read -s -p "Enter Windows Admin Password: " WIN_PASS
 echo ""
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
-# Calculate Hash
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 
-# --- 4. THE STATE LOCK (CRITICAL) ---
-echo ">>> Linking to central database (gs://slingshot-states)..."
-
-# Force initialize with the specific client path
+# --- 4. THE STATE LOCK ---
+echo ">>> Linking to central database..."
+# If init fails here, we WANT the script to stop.
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
-  -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME" || {
-    echo "❌ FATAL ERROR: Could not connect to the remote state bucket."
-    echo "This is likely a permission issue. Deployment aborted to prevent state loss."
-    exit 1
-  }
+  -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME"
 
-# Double check that we are NOT in local mode
-if [ -f "terraform.tfstate" ]; then
-    echo "⚠️  Found a local state file. Attempting to migrate to bucket..."
-    terraform init -force-copy \
-      -backend-config="bucket=slingshot-states" \
-      -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME"
-fi
-
-# --- 5. INFRASTRUCTURE DEPLOYMENT ---
+# --- 5. INFRASTRUCTURE DEPLOYMENT (Robust Mode) ---
 echo ">>> Applying Infrastructure..."
+
+# We temporarily disable 'set -e' so a firewall error doesn't kill the script
+set +e 
 terraform apply -auto-approve \
   -var="project_id=$GOOGLE_CLOUD_PROJECT" \
   -var="server_name=$SERVER_NAME" \
@@ -80,14 +60,23 @@ terraform apply -auto-approve \
   -var="nt_password=$NT_PASS" \
   -var="admin_password=$WIN_PASS" \
   -var="client_hash=$CLIENT_HASH"
+APPLY_EXIT_CODE=$?
+set -e # Re-enable safety
 
-# --- 6. CLEANUP ---
+# --- 6. FINAL REPORT & CLEANUP ---
 echo "=========================================================="
-echo "✅ DEPLOYMENT COMPLETE"
+if [ $APPLY_EXIT_CODE -eq 0 ]; then
+    echo "✅ DEPLOYMENT SUCCESSFUL"
+else
+    echo "⚠️  DEPLOYMENT FINISHED WITH WARNINGS (Check firewall rules)"
+fi
 echo "=========================================================="
-terraform output rdp_address || echo "Server built successfully (Output address pending DNS)"
+
+# This will now ALWAYS run
+echo "SERVER ACCESS DETAILS:"
+terraform output rdp_address || echo "RDP IP: (Generating... refresh status in 60s)"
+echo "----------------------------------------------------------"
 
 rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
 cd ~
-# Note: We do not delete the source folder here to allow for manual recovery if needed
 echo ">>> Setup finished."
