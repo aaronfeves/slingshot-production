@@ -77,6 +77,28 @@ echo "SERVER ACCESS DETAILS:"
 terraform output rdp_address || echo "RDP IP: (Generating... refresh status in 60s)"
 echo "----------------------------------------------------------"
 
-rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
+# ... existing terraform apply command ...
+
+echo "----------------------------------------------------------"
+echo ">>> DEPLOYMENT COMPLETE. STARTING LOCAL CLEANUP..."
+echo "----------------------------------------------------------"
+
+# Move to home directory so we aren't "inside" the folder we are deleting
 cd ~
+
+# Safely remove the temporary cloudshell_open folder
+if [ -d "$HOME/cloudshell_open" ]; then
+    rm -rf "$HOME/cloudshell_open"
+    echo "✔ Removed temporary cloudshell_open folder."
+fi
+
+# Safely remove the local production folder
+if [ -d "$HOME/slingshot-production" ]; then
+    rm -rf "$HOME/slingshot-production"
+    echo "✔ Removed local slingshot-production folder."
+fi
+
+echo ">>> Workspace is clean. Your VM is now initializing in the cloud."
+
+rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
 echo ">>> Setup finished."
