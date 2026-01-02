@@ -7,7 +7,7 @@ provider "google" {
   region  = "us-central1"
 }
 
-# --- 1. IAM PERMISSIONS FOR SCHEDULING ---
+# --- 1. IAM PERMISSIONS ---
 data "google_project" "project" {}
 
 resource "google_project_iam_member" "instance_schedule_admin" {
@@ -16,10 +16,9 @@ resource "google_project_iam_member" "instance_schedule_admin" {
   member  = "serviceAccount:service-${data.google_project.project.number}@compute-system.iam.gserviceaccount.com"
 }
 
-# --- 2. STATIC IP ---
+# --- 2. STATIC IP (Now using client_hash) ---
 resource "google_compute_address" "static_ip" {
-  # Still uses your existing bucket_name/hash variable
-  name   = "${var.server_name}-${var.bucket_name}-ip"
+  name   = "${var.server_name}-${var.client_hash}-ip"
   region = "us-central1"
 }
 
@@ -45,7 +44,6 @@ resource "google_compute_instance" "slingshot_server" {
   boot_disk {
     initialize_params {
       image = "projects/linen-cargo-476801-f0/global/images/slingshot-image-main" 
-      type  = "pd-ssd" 
       size  = 50
     }
   }
@@ -62,9 +60,8 @@ resource "google_compute_instance" "slingshot_server" {
       if (!(Test-Path $SlingshotDir)) { New-Item -ItemType Directory -Force -Path $SlingshotDir }
       if (!(Test-Path $InstallDir)) { New-Item -ItemType Directory -Force -Path $InstallDir }
 
-      # --- CONSTRUCT BACKUP PATH HERE ---
-      # No new variable. We just append "backup" to the existing hash variable
-      [Environment]::SetEnvironmentVariable("SLINGSHOT_BACKUP_PATH", "${var.bucket_name}/backup", "Machine")
+      # Construct Backup Path using the client_hash
+      [Environment]::SetEnvironmentVariable("SLINGSHOT_BACKUP_PATH", "${var.client_hash}/backup", "Machine")
 
       gsutil cp "gs://${var.master_bucket}/binaries/SlingshotWorker.exe" "$SlingshotDir/"
       gsutil cp "gs://${var.master_bucket}/installers/SlingshotSetup.exe" "$InstallDir/"
