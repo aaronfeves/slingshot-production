@@ -3,7 +3,7 @@
 # --- 1. ENVIRONMENT & AUTHENTICATION ---
 set -e
 
-# Try to detect the Project ID automatically
+# Detect or Ask for Project ID
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project 2>/dev/null)
 
 # FALLBACK: If Project ID is empty or unset, list projects and ask the user
@@ -19,19 +19,24 @@ if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; t
     gcloud config set project $GOOGLE_CLOUD_PROJECT
 fi
 
-# Authenticate the session to allow Terraform to talk to GCS
-echo ">>> Authenticating session..."
+echo ">>> Resetting and authenticating session..."
+# CLEANUP: Remove any existing (potentially broken) credential files to fix Permission Denied errors
+rm -f "/home/$(whoami)/.config/gcloud/application_default_credentials.json"
+
+# RE-AUTH: Fresh credential generation
 gcloud auth application-default login --quiet --no-launch-browser
 
-# FIX: Force the credential file into the standard location Terraform expects
+# MAPPING: Explicitly set the environment variable Terraform uses
 export GOOGLE_APPLICATION_CREDENTIALS="/home/$(whoami)/.config/gcloud/application_default_credentials.json"
 
+# FALLBACK: If the file was written to /tmp/ (common in Cloud Shell), move it to home
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
-    echo ">>> Mapping credentials for Terraform..."
+    echo ">>> Mapping credentials from temporary storage..."
     FOUND_CRED=$(find /tmp/tmp.* -name "application_default_credentials.json" 2>/dev/null | head -n 1)
     if [ -n "$FOUND_CRED" ]; then
         mkdir -p "/home/$(whoami)/.config/gcloud"
         cp "$FOUND_CRED" "$GOOGLE_APPLICATION_CREDENTIALS"
+        chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
     fi
 fi
 
@@ -47,7 +52,7 @@ echo ""
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
-# Generate a hash for backend isolation
+# Generate client hash for backend isolation
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 
 echo "----------------------------------------------------------"
@@ -63,7 +68,7 @@ gsutil -m cp gs://slingshot-public-release/installers/SlingshotSetup.exe .
 
 # --- 4. TERRAFORM INITIALIZATION ---
 echo ">>> Initializing Terraform..."
-# -reconfigure ensures a clean slate for new user environments
+# -reconfigure is mandatory to fix backend "permission denied" errors between different users
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
   -backend-config="prefix=terraform/state/$SERVER_NAME"
@@ -85,7 +90,7 @@ echo "=========================================================="
 terraform output rdp_address
 
 echo ">>> Cleaning up temporary local files..."
-# Navigate out of the directory so we can delete it safely
 cd ~
+# This deletes the temporary cloudshell_open folder safely
 rm -rf "$OLDPWD"
 echo ">>> Done. Your workspace is clean."
