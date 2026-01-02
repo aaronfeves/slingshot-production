@@ -49,3 +49,6 @@ variable "client_hash" {
   description = "Unique hash for user folder isolation"
   type        = string
 }
+variable "bucket_name" {
+  description = "The client hash calculated by the bash script"
+}
