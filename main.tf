@@ -1,3 +1,7 @@
+terraform {
+  backend "gcs" {} # This tells Terraform to look for the bucket info during init
+}
+
 resource "google_compute_instance" "slingshot_server" {
   name         = var.server_name
   machine_type = var.machine_type
