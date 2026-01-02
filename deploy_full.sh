@@ -7,7 +7,6 @@ export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project 2>/dev/null)
 if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; then
     echo "⚠️  No default Google Cloud Project detected."
     echo "----------------------------------------------------------"
-    echo "Your available projects:"
     gcloud projects list --format="table(projectId, name)"
     echo "----------------------------------------------------------"
     read -p "Please copy and paste your Project ID from the list above: " GOOGLE_CLOUD_PROJECT
@@ -16,32 +15,40 @@ fi
 
 # --- 2. AUTHENTICATION & CREDENTIAL MAPPING ---
 echo ">>> Authenticating session..."
-# We write to a local file to bypass restricted system directories
 LOCAL_CREDS="$(pwd)/google_creds.json"
 export GOOGLE_APPLICATION_CREDENTIALS="$LOCAL_CREDS"
 
 gcloud auth application-default login --quiet --no-launch-browser
 
-# Map the temporary credentials to our local file
 FOUND_CRED=$(find /tmp/tmp.* -name "application_default_credentials.json" 2>/dev/null | head -n 1)
 if [ -n "$FOUND_CRED" ]; then
     cp "$FOUND_CRED" "$GOOGLE_APPLICATION_CREDENTIALS"
     chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"
 fi
 
-# --- 3. USER INPUTS ---
+# --- 3. USER INPUTS (WITH VALIDATION) ---
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
 
-read -p "Enter Server Name (e.g., modelv36): " SERVER_NAME
-read -p "Enter NinjaTrader Email: " NT_USER
+# Prevent blank email/hash errors
+while [ -z "$NT_USER" ]; do
+    read -p "Enter NinjaTrader Email: " NT_USER
+    if [ -z "$NT_USER" ]; then echo "❌ Email cannot be blank!"; fi
+done
+
+# Prevent blank server name
+while [ -z "$SERVER_NAME" ]; do
+    read -p "Enter Server Name (e.g., modelv36): " SERVER_NAME
+    if [ -z "$SERVER_NAME" ]; then echo "❌ Server Name cannot be blank!"; fi
+done
+
 read -s -p "Enter Windows Admin Password: " WIN_PASS
 echo ""
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
-# Calculate the client hash for folder isolation
+# Calculate Hash
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 
 echo "----------------------------------------------------------"
@@ -55,14 +62,17 @@ echo ">>> Fetching latest binaries from public release..."
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotWorker.exe .
 gsutil -m cp gs://slingshot-public-release/installers/SlingshotSetup.exe .
 
-# --- 5. TERRAFORM INITIALIZATION ---
-echo ">>> Initializing Terraform..."
-# Prefix updated to match your 'clients' folder structure for slingshot_status
+# --- 5. TERRAFORM INITIALIZATION (STRICT CHECK) ---
+echo ">>> Initializing Terraform Backend..."
+# We use || exit 1 to ensure we don't proceed if the bucket is unreachable
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
-  -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME"
+  -backend-config="prefix=clients/client_$CLIENT_HASH/$SERVER_NAME" || {
+    echo "❌ ERROR: Failed to connect to the state bucket. Deployment aborted."
+    exit 1
+  }
 
-# --- 6. INFRASTRUCTURE DEPLOYMENT (WITH RETRY LOGIC) ---
+# --- 6. INFRASTRUCTURE DEPLOYMENT (WITH RETRY LOOP) ---
 echo ">>> Applying Infrastructure..."
 MAX_RETRIES=3
 COUNT=0
@@ -80,7 +90,7 @@ while [ $COUNT -lt $MAX_RETRIES ]; do
       break
   else
       COUNT=$((COUNT+1))
-      echo "⚠️  API connection error. Retrying ($COUNT/$MAX_RETRIES) in 10s..."
+      echo "⚠️  API Timeout or Connection Refused. Retrying ($COUNT/$MAX_RETRIES) in 10s..."
       sleep 10
   fi
 done
@@ -96,7 +106,6 @@ echo "✅ DEPLOYMENT COMPLETE"
 echo "=========================================================="
 terraform output rdp_address
 
-# Clean up local sensitive files
 rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
 
 echo ">>> Cleaning up workspace..."
