@@ -32,10 +32,10 @@ fi
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
-while [ -z "$NT_USER" ]; do read -p "Enter NinjaTrader Email: " NT_USER; done
 while [ -z "$SERVER_NAME" ]; do read -p "Enter Server Name: " SERVER_NAME; done
 read -s -p "Enter Windows Admin Password: " WIN_PASS
 echo ""
+while [ -z "$NT_USER" ]; do read -p "Enter NinjaTrader Username: " NT_USER; done
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
