@@ -6,7 +6,7 @@ set -e
 # Try to detect the Project ID automatically
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project 2>/dev/null)
 
-# FALLBACK: If Project ID is empty, list projects and ask the user
+# FALLBACK: If Project ID is empty or unset, list projects and ask the user
 if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; then
     echo "⚠️  No default Google Cloud Project detected."
     echo "----------------------------------------------------------"
@@ -19,16 +19,21 @@ if [ -z "$GOOGLE_CLOUD_PROJECT" ] || [ "$GOOGLE_CLOUD_PROJECT" == "(unset)" ]; t
     gcloud config set project $GOOGLE_CLOUD_PROJECT
 fi
 
-# Authenticate the session
+# Authenticate the session to allow Terraform to talk to GCS
 echo ">>> Authenticating session..."
-gcloud auth application-default login --quiet --no-launch-browser || gcloud auth application-default login --quiet
+gcloud auth application-default login --quiet --no-launch-browser
 
-# Force Terraform to see the credentials we just created
-export GOOGLE_APPLICATION_CREDENTIALS=$(gcloud auth application-default print-access-token --format='value(access_token)' 2>/dev/null && echo "/home/$(whoami)/.config/gcloud/application_default_credentials.json")
+# FIX: Force the credential file into the standard location Terraform expects
+export GOOGLE_APPLICATION_CREDENTIALS="/home/$(whoami)/.config/gcloud/application_default_credentials.json"
 
-# Alternative: Link the tmp file to the expected location
-mkdir -p ~/.config/gcloud
-cp /tmp/tmp.*/application_default_credentials.json ~/.config/gcloud/application_default_credentials.json 2>/dev/null || true
+if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo ">>> Mapping credentials for Terraform..."
+    FOUND_CRED=$(find /tmp/tmp.* -name "application_default_credentials.json" 2>/dev/null | head -n 1)
+    if [ -n "$FOUND_CRED" ]; then
+        mkdir -p "/home/$(whoami)/.config/gcloud"
+        cp "$FOUND_CRED" "$GOOGLE_APPLICATION_CREDENTIALS"
+    fi
+fi
 
 # --- 2. USER INPUTS ---
 echo "=========================================================="
@@ -42,6 +47,7 @@ echo ""
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
 
+# Generate a hash for backend isolation
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 
 echo "----------------------------------------------------------"
@@ -57,6 +63,7 @@ gsutil -m cp gs://slingshot-public-release/installers/SlingshotSetup.exe .
 
 # --- 4. TERRAFORM INITIALIZATION ---
 echo ">>> Initializing Terraform..."
+# -reconfigure ensures a clean slate for new user environments
 terraform init -reconfigure \
   -backend-config="bucket=slingshot-states" \
   -backend-config="prefix=terraform/state/$SERVER_NAME"
@@ -78,6 +85,7 @@ echo "=========================================================="
 terraform output rdp_address
 
 echo ">>> Cleaning up temporary local files..."
+# Navigate out of the directory so we can delete it safely
 cd ~
 rm -rf "$OLDPWD"
 echo ">>> Done. Your workspace is clean."
