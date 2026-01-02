@@ -1,54 +1,52 @@
+# ==========================================================
+# SLINGSHOT VARIABLES CONFIGURATION
+# ==========================================================
+
 variable "project_id" {
-  description = "The Google Cloud Project ID"
+  description = "The GCP Project ID where resources are deployed"
   type        = string
 }
 
 variable "server_name" {
-  description = "Name of the VM instance"
+  description = "The unique name for the VM instance"
   type        = string
-  default     = "slingshot-server"
 }
 
 variable "nt_username" {
-  description = "NinjaTrader Email/Username"
+  description = "NinjaTrader Username/Email"
   type        = string
 }
 
 variable "nt_password" {
   description = "NinjaTrader Password"
   type        = string
-  sensitive   = true
 }
 
 variable "admin_password" {
-  description = "Windows Admin Password"
+  description = "Windows Administrator Password"
   type        = string
-  sensitive   = true
+}
+
+# This matches the CLIENT_HASH calculated in your bash scripts
+variable "client_hash" {
+  description = "The 10-character MD5 hash of the user's email"
+  type        = string
+}
+
+variable "master_bucket" {
+  description = "Central bucket for binaries and installers"
+  type        = string
+  default     = "slingshot-public-release"
 }
 
 variable "zone" {
-  description = "GCP Zone"
+  description = "GCP Zone for deployment"
   type        = string
   default     = "us-central1-a"
 }
 
 variable "machine_type" {
-  description = "Machine type for the VM"
+  description = "Machine resource specification"
   type        = string
   default     = "e2-highmem-2"
-}
-
-variable "master_bucket" {
-  description = "Public bucket containing the binaries"
-  type        = string
-  default     = "slingshot-public-release"
-}
-
-# ADD THIS BLOCK - This was the missing piece causing the error
-variable "client_hash" {
-  description = "Unique hash for user folder isolation"
-  type        = string
-}
-variable "bucket_name" {
-  description = "The client hash calculated by the bash script"
 }
