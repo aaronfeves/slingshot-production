@@ -14,6 +14,11 @@ resource "google_project_iam_member" "instance_schedule_admin" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
   member  = "serviceAccount:service-${data.google_project.project.number}@compute-system.iam.gserviceaccount.com"
+
+  # FIX: Prevent 403 errors during destroy by keeping this project-level role intact
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # --- 2. STATIC IP ---
@@ -24,7 +29,7 @@ resource "google_compute_address" "static_ip" {
 
 # --- 3. INSTANCE SCHEDULE (6 AM - 7 AM Mon-Fri) ---
 resource "google_compute_resource_policy" "daily_schedule" {
-  # FIX: Unique name using hash and server name to prevent 409 Conflict errors
+  # FIX: Unique name per server/client to prevent 409 'Already Exists' errors
   name   = "sched-${var.client_hash}-${var.server_name}" 
   region = "us-central1"
   
@@ -62,21 +67,18 @@ resource "google_compute_instance" "slingshot_server" {
       if (!(Test-Path $InstallDir)) { New-Item -ItemType Directory -Force -Path $InstallDir }
 
       # --- RDP FIX: CLEAR THE TUG-OF-WAR ---
-      # Explicitly remove ForceAutoLogon to stop the 0x3 / 0x5 disconnect loop
+      # Remove ForceAutoLogon to prevent the 0x3 / 0x5 disconnect error
       $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
       Remove-ItemProperty -Path $RegPath -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
 
       # --- ENVIRONMENT SETUP ---
-      # Construct Backup Path using the client_hash [cite: 10, 11]
       [Environment]::SetEnvironmentVariable("SLINGSHOT_BACKUP_PATH", "${var.client_hash}/backup", "Machine")
 
       # --- DOWNLOAD BINARIES ---
-      # Pulls worker and your fixed SlingshotSetup.exe 
       gsutil cp "gs://${var.master_bucket}/binaries/SlingshotWorker.exe" "$SlingshotDir/"
       gsutil cp "gs://${var.master_bucket}/installers/SlingshotSetup.exe" "$InstallDir/"
 
       # --- EXECUTE ORCHESTRATION ---
-      # Passes credentials to your C# setup for AutoAdminLogon config 
       $exePath = "$InstallDir\SlingshotSetup.exe"
       $args = "${var.nt_username} ${var.nt_password} ${var.admin_password}"
       Start-Process -FilePath $exePath -ArgumentList $args -Wait
@@ -97,4 +99,10 @@ resource "google_compute_instance_iam_member" "slingshot_admin_access" {
   instance_name = google_compute_instance.slingshot_server.name
   role          = "roles/compute.admin"
   member        = "user:aaronfeves@gmail.com"
+
+  # FIX: Ensure your access is not revoked until AFTER the VM and policy are gone
+  depends_on = [
+    google_compute_instance.slingshot_server,
+    google_compute_resource_policy.daily_schedule
+  ]
 }
