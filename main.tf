@@ -24,7 +24,8 @@ resource "google_compute_address" "static_ip" {
 
 # --- 3. INSTANCE SCHEDULE (6 AM - 7 AM Mon-Fri) ---
 resource "google_compute_resource_policy" "daily_schedule" {
-  name   = "slingshot-trading-hours"
+  # FIX: Unique name using hash and server name to prevent 409 Conflict errors
+  name   = "sched-${var.client_hash}-${var.server_name}" 
   region = "us-central1"
   
   instance_schedule_policy {
@@ -61,19 +62,21 @@ resource "google_compute_instance" "slingshot_server" {
       if (!(Test-Path $InstallDir)) { New-Item -ItemType Directory -Force -Path $InstallDir }
 
       # --- RDP FIX: CLEAR THE TUG-OF-WAR ---
-      # Remove ForceAutoLogon to prevent the 0x3 / 0x5 disconnect error
+      # Explicitly remove ForceAutoLogon to stop the 0x3 / 0x5 disconnect loop
       $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
       Remove-ItemProperty -Path $RegPath -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
 
       # --- ENVIRONMENT SETUP ---
-      # Construct Backup Path using the client_hash
+      # Construct Backup Path using the client_hash [cite: 10, 11]
       [Environment]::SetEnvironmentVariable("SLINGSHOT_BACKUP_PATH", "${var.client_hash}/backup", "Machine")
 
       # --- DOWNLOAD BINARIES ---
+      # Pulls worker and your fixed SlingshotSetup.exe 
       gsutil cp "gs://${var.master_bucket}/binaries/SlingshotWorker.exe" "$SlingshotDir/"
       gsutil cp "gs://${var.master_bucket}/installers/SlingshotSetup.exe" "$InstallDir/"
 
       # --- EXECUTE ORCHESTRATION ---
+      # Passes credentials to your C# setup for AutoAdminLogon config 
       $exePath = "$InstallDir\SlingshotSetup.exe"
       $args = "${var.nt_username} ${var.nt_password} ${var.admin_password}"
       Start-Process -FilePath $exePath -ArgumentList $args -Wait
