@@ -32,9 +32,47 @@ fi
 echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
-while [ -z "$SERVER_NAME" ]; do read -p "Enter Server Name: " SERVER_NAME; done
-read -s -p "Enter Windows Admin Password: " WIN_PASS
+
+while [ -z "$SERVER_NAME" ]; do 
+    read -p "Enter Server Name: " SERVER_NAME
+done
+
+while true; do
+    read -s -p "Enter Windows Admin Password: " WIN_PASS
+    echo ""
+    
+    # Validation Criteria
+    # 1. Length (Minimum 12 characters recommended for server admin)
+    # 2. Contains Uppercase [A-Z]
+    # 3. Contains Lowercase [a-z]
+    # 4. Contains Digits [0-9]
+    # 5. Contains Special Chars [@#$%^&*...]
+    
+    VALID=0
+    [[ ${#WIN_PASS} -ge 12 ]] && ((VALID++))
+    [[ "$WIN_PASS" =~ [A-Z] ]] && ((VALID++))
+    [[ "$WIN_PASS" =~ [a-z] ]] && ((VALID++))
+    [[ "$WIN_PASS" =~ [0-9] ]] && ((VALID++))
+    [[ "$WIN_PASS" =~ [^a-zA-Z0-9] ]] && ((VALID++))
+
+    # Windows complexity requires at least 3 of the 4 char types + length
+    # Here we check for length (min 12) AND at least 3 types
+    if [[ ${#WIN_PASS} -ge 12 && $VALID -ge 4 ]]; then
+        break
+    else
+        echo "----------------------------------------------------------"
+        echo "ERROR: Password does not meet Windows complexity rules."
+        echo "Rules:"
+        echo " - Minimum 12 characters long"
+        echo " - Must contain 3 of the following: Upper, Lower, Number, Special"
+        echo " - Cannot contain the user's account name (Server Name)"
+        echo "----------------------------------------------------------"
+    fi
+done
+
+echo "Password accepted."
 echo ""
+
 while [ -z "$NT_USER" ]; do read -p "Enter NinjaTrader Username: " NT_USER; done
 read -s -p "Enter NinjaTrader Password: " NT_PASS
 echo ""
