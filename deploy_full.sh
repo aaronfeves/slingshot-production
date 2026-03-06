@@ -33,19 +33,16 @@ echo "=========================================================="
 echo "          SLINGSHOT TRADING SERVER INSTALLER"
 echo "=========================================================="
 
-while [ -z "$SERVER_NAME" ]; do 
-    read -p "Enter Server Name: " SERVER_NAME
-done
+while [ -z "$SERVER_NAME" ]; do read -p "Enter Server Name: " SERVER_NAME; done
+echo ""
 
-while [ -z "$WIN_PASS" ]; do
-    read -s -p "Enter Windows Admin Password: " WIN_PASS
-    echo ""
-done
-
+while [ -z "$WIN_PASS" ]; do read -s -p "Enter Windows Admin Password: " WIN_PASS; done
 echo ""
 
 while [ -z "$NT_USER" ]; do read -p "Enter NinjaTrader Username: " NT_USER; done
-read -s -p "Enter NinjaTrader Password: " NT_PASS
+echo ""
+
+while [ -z "$NT_PASS" ]; do read -s -p "Enter NinjaTrader Password: " NT_PASS; done
 echo ""
 
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
