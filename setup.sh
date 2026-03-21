@@ -305,3 +305,4 @@ echo ""
 
 # Self-destruct
 rm -f "$0"
+rm -rf ~/slingshot-production
