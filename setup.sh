@@ -266,30 +266,35 @@ echo "Scheduler job created: $JOB_NAME"
 echo ""
 echo "Creating daily disk snapshot schedule..."
 
-SNAPSHOT_POLICY="slingshot-daily-backup-$CLIENT_HASH"
+# Policy name is unique per VM name + user hash
+SNAPSHOT_POLICY="slingshot-backup-${VM_NAME}-${CLIENT_HASH}"
 
-# Delete existing policy if present
-gcloud compute resource-policies delete "$SNAPSHOT_POLICY" \
+# Check if policy already exists
+EXISTING_POLICY=$(gcloud compute resource-policies describe "$SNAPSHOT_POLICY" \
   --region=us-central1 \
   --project="$USER_PROJECT" \
-  --quiet 2>/dev/null || true
+  --format="value(name)" 2>/dev/null || true)
 
-gcloud compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" \
-  --region=us-central1 \
-  --max-retention-days=3 \
-  --on-source-disk-delete=keep-auto-snapshots \
-  --daily-schedule \
-  --start-time=07:05 \
-  --project="$USER_PROJECT" \
-  --quiet
+if [ -n "$EXISTING_POLICY" ]; then
+  echo "Snapshot policy already exists, skipping creation."
+else
+  gcloud compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" \
+    --region=us-central1 \
+    --max-retention-days=3 \
+    --on-source-disk-delete=keep-auto-snapshots \
+    --daily-schedule \
+    --start-time=07:05 \
+    --project="$USER_PROJECT" \
+    --quiet
 
-gcloud compute disks add-resource-policies "$DISK_NAME" \
-  --zone="$VM_ZONE" \
-  --resource-policies="$SNAPSHOT_POLICY" \
-  --project="$USER_PROJECT" \
-  --quiet
+  gcloud compute disks add-resource-policies "$DISK_NAME" \
+    --zone="$VM_ZONE" \
+    --resource-policies="$SNAPSHOT_POLICY" \
+    --project="$USER_PROJECT" \
+    --quiet
 
-echo "Snapshot schedule created: daily at 7:05 AM, 3 days retention."
+  echo "Snapshot schedule created: daily at 7:05 AM, 3 days retention."
+fi
 
 # ─── STEP 9: CLEANUP ─────────────────────────────────────────────────────────
 
@@ -302,7 +307,3 @@ echo "  Pacific time, Monday through Friday."
 echo "  Daily backup snapshot at 7:05 AM."
 echo "========================================"
 echo ""
-
-# Self-destruct
-rm -f "$0"
-rm -rf ~/slingshot-production
