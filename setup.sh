@@ -186,27 +186,58 @@ gcloud functions add-invoker-policy-binding $FUNCTION_NAME \
   --project=$MANAGED_PROJECT
 echo "Invoker permission granted."
 
-# ─── STEP 6: DETACH EXISTING START SCHEDULE ──────────────────────────────────
+# ─── STEP 6: DETACH AND REPLACE VM SCHEDULE ──────────────────────────────────
 
 echo ""
-echo "Checking for existing VM schedules..."
-RESOURCE_POLICY=$(gcloud compute instances describe "$VM_NAME" \
+echo "Configuring VM stop schedule..."
+
+STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME}"
+
+# Detach any existing resource policies from the VM
+EXISTING_POLICY=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
   --format="value(resourcePolicies[0])" 2>/dev/null | awk -F'/' '{print $NF}')
 
-if [ -n "$RESOURCE_POLICY" ]; then
-  echo "Found schedule: $RESOURCE_POLICY"
-  echo "Detaching start schedule..."
+if [ -n "$EXISTING_POLICY" ]; then
+  echo "Detaching existing schedule: $EXISTING_POLICY"
   gcloud compute instances remove-resource-policies "$VM_NAME" \
     --zone="$VM_ZONE" \
     --project="$USER_PROJECT" \
-    --resource-policies="$RESOURCE_POLICY" \
+    --resource-policies="$EXISTING_POLICY" \
     --quiet
-  echo "Schedule detached."
-else
-  echo "No existing schedule found."
+
+  # Delete the old policy
+  echo "Deleting old policy: $EXISTING_POLICY"
+  gcloud compute resource-policies delete "$EXISTING_POLICY" \
+    --region=us-central1 \
+    --project="$USER_PROJECT" \
+    --quiet 2>/dev/null || true
 fi
+
+# Delete stop policy if it already exists (for re-runs)
+gcloud compute resource-policies delete "$STOP_POLICY" \
+  --region=us-central1 \
+  --project="$USER_PROJECT" \
+  --quiet 2>/dev/null || true
+
+# Create stop-only policy
+echo "Creating stop-only schedule (7:00 AM Pacific, Mon-Fri)..."
+gcloud compute resource-policies create instance-schedule "$STOP_POLICY" \
+  --region=us-central1 \
+  --vm-stop-schedule="0 7 * * 1-5" \
+  --timezone="America/Los_Angeles" \
+  --project="$USER_PROJECT" \
+  --quiet
+
+# Attach to VM
+gcloud compute instances add-resource-policies "$VM_NAME" \
+  --zone="$VM_ZONE" \
+  --project="$USER_PROJECT" \
+  --resource-policies="$STOP_POLICY" \
+  --quiet
+
+echo "Stop schedule attached: 7:00 AM Pacific, Mon-Fri."
 
 # ─── STEP 7: WRITE CONFIG TO GCS ─────────────────────────────────────────────
 
@@ -270,12 +301,12 @@ echo "Creating daily disk snapshot schedule..."
 SNAPSHOT_POLICY="slingshot-backup-${VM_NAME}-${CLIENT_HASH}"
 
 # Check if policy already exists
-EXISTING_POLICY=$(gcloud compute resource-policies describe "$SNAPSHOT_POLICY" \
+EXISTING_SNAPSHOT=$(gcloud compute resource-policies describe "$SNAPSHOT_POLICY" \
   --region=us-central1 \
   --project="$USER_PROJECT" \
   --format="value(name)" 2>/dev/null || true)
 
-if [ -n "$EXISTING_POLICY" ]; then
+if [ -n "$EXISTING_SNAPSHOT" ]; then
   echo "Snapshot policy already exists, skipping creation."
 else
   gcloud compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" \
@@ -303,6 +334,8 @@ rm -f /tmp/vm_config.json
 echo "========================================"
 echo "  Setup complete!"
 echo "  VM '$VM_NAME' will start at 5:45 AM"
+echo "  Pacific time, Monday through Friday."
+echo "  VM '$VM_NAME' will stop at 7:00 AM"
 echo "  Pacific time, Monday through Friday."
 echo "  Daily backup snapshot at 7:05 AM."
 echo "========================================"
