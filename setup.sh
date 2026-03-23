@@ -205,17 +205,18 @@ if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
   HAS_SLINGSHOT=true
   echo "Startup script already configured."
 
-  # Extract NT username from existing metadata
+
   NT_USER=$(echo "$EXISTING_METADATA" \
-    | grep -oP '(?<=Start-Process -FilePath \$exePath -ArgumentList ")[^@]+@[^ ]+' \
+    | grep -oP '(?<=\$args = ")[^@]+@[^"! ]+' \
     | head -1 || true)
 
-  # If not found with that pattern try ArgumentList pattern
+  # Fallback for hand-built or older format
   if [ -z "$NT_USER" ]; then
     NT_USER=$(echo "$EXISTING_METADATA" \
-      | grep -oP '(?<=ArgumentList ")[^ ]+' \
+      | grep -oP '(?<=ArgumentList ")[^@ ]+@[^" ]+' \
       | head -1 || true)
   fi
+
 
   if [ -z "$NT_USER" ]; then
     echo ""
