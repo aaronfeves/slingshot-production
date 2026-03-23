@@ -176,15 +176,6 @@ gcloud projects add-iam-policy-binding "$USER_PROJECT" \
   --quiet
 echo "Access granted."
 
-# ─── STEP 5: GRANT USER SERVICE ACCOUNT PERMISSION TO INVOKE CENTRAL FUNCTION─
-
-echo ""
-echo "Granting invoker permission on central function..."
-gcloud functions add-invoker-policy-binding $FUNCTION_NAME \
-  --region=us-central1 \
-  --member="serviceAccount:${USER_SA}" \
-  --project=$MANAGED_PROJECT
-echo "Invoker permission granted."
 
 # ─── STEP 6: DETACH AND REPLACE VM SCHEDULE ──────────────────────────────────
 
