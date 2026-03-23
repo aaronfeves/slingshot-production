@@ -1,19 +1,71 @@
 #!/bin/bash
-# setup.sh — Slingshot VM Manager Setup
+# setup.sh — Slingshot VM Manager Setup v2.0
 # Run this in GCP Cloud Shell
 
 set -e
 
 MANAGED_PROJECT="slingshot-managed-services"
 MANAGED_SA="slingshot-manager@slingshot-managed-services.iam.gserviceaccount.com"
-FUNCTION_NAME="slingshot-vm-manager"
 FUNCTION_URL="https://slingshot-vm-manager-aliasnpt5a-uc.a.run.app"
 STATE_BUCKET="slingshot-states"
 ZONE_PRIORITY=("us-central1-a" "us-central1-b" "us-central1-f")
 
+# ─── PASSWORD VALIDATION FUNCTIONS ───────────────────────────────────────────
+
+validate_windows_password() {
+    local pass="$1"
+    local length=${#pass}
+    local score=0
+
+    if [ "$length" -lt 8 ]; then
+        echo "Password must be at least 8 characters long."
+        return 1
+    fi
+
+    echo "$pass" | grep -q '[A-Z]' && ((score++))
+    echo "$pass" | grep -q '[a-z]' && ((score++))
+    echo "$pass" | grep -q '[0-9]' && ((score++))
+    echo "$pass" | grep -q '[^a-zA-Z0-9]' && ((score++))
+
+    if [ "$score" -lt 3 ]; then
+        echo "Password must contain at least 3 of the following: uppercase letters, lowercase letters, numbers, special characters."
+        return 1
+    fi
+
+    return 0
+}
+
+prompt_password_confirmed() {
+    local prompt="$1"
+    local validate="$2"
+    local result=""
+
+    while true; do
+        read -s -p "$prompt: " pass1; echo ""
+        read -s -p "Confirm $prompt: " pass2; echo ""
+
+        if [ "$pass1" != "$pass2" ]; then
+            echo "Passwords do not match. Please try again."
+            continue
+        fi
+
+        if [ "$validate" == "windows" ]; then
+            if ! validate_windows_password "$pass1"; then
+                echo "Please try again."
+                continue
+            fi
+        fi
+
+        result="$pass1"
+        break
+    done
+
+    echo "$result"
+}
+
 echo ""
 echo "========================================"
-echo "  Slingshot VM Manager Setup"
+echo "  Slingshot VM Manager Setup v2.0"
 echo "========================================"
 echo ""
 
@@ -94,7 +146,6 @@ echo "Selected VM: $VM_NAME"
 echo ""
 echo "Reading VM configuration..."
 
-# Find which zone the VM is in
 VM_ZONE=""
 for ZONE in "${ZONE_PRIORITY[@]}"; do
   if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$USER_PROJECT" &>/dev/null; then
@@ -110,21 +161,18 @@ fi
 
 echo "Zone: $VM_ZONE"
 
-# Get machine type
 MACHINE_TYPE=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
   --format="value(machineType)" | awk -F'/' '{print $NF}')
 echo "Machine type: $MACHINE_TYPE"
 
-# Get disk name
 DISK_NAME=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
   --format="value(disks[0].source)" | awk -F'/' '{print $NF}')
 echo "Disk: $DISK_NAME"
 
-# Get static IP name
 EXTERNAL_IP=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
@@ -142,31 +190,51 @@ else
   echo "Static IP: $STATIC_IP_NAME ($EXTERNAL_IP)"
 fi
 
-# Get NT username from metadata if available
-NT_USER=$(gcloud compute instances describe "$VM_NAME" \
+# ─── STEP 4: CHECK FOR EXISTING STARTUP SCRIPT ───────────────────────────────
+
+echo ""
+echo "Checking startup script configuration..."
+
+EXISTING_METADATA=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
-  --format="value(metadata.items[windows-startup-script-ps1])" 2>/dev/null \
-  | grep -oP '(?<=Start-Process -FilePath \$exePath -ArgumentList ")[^@]+@[^ ]+' \
-  | head -1 || true)
+  --format="value(metadata.items[windows-startup-script-ps1])" 2>/dev/null || true)
 
-if [ -z "$NT_USER" ]; then
-  echo ""
-  read -rp "Enter your NinjaTrader username (email): " NT_USER
+HAS_SLINGSHOT=false
+if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
+  HAS_SLINGSHOT=true
+  echo "Startup script already configured."
+
+  # Extract NT username from existing metadata
+  NT_USER=$(echo "$EXISTING_METADATA" \
+    | grep -oP '(?<=Start-Process -FilePath \$exePath -ArgumentList ")[^@]+@[^ ]+' \
+    | head -1 || true)
+
+  # If not found with that pattern try ArgumentList pattern
+  if [ -z "$NT_USER" ]; then
+    NT_USER=$(echo "$EXISTING_METADATA" \
+      | grep -oP '(?<=ArgumentList ")[^ ]+' \
+      | head -1 || true)
+  fi
+
+  if [ -z "$NT_USER" ]; then
+    echo ""
+    read -rp "Enter your NinjaTrader username (email): " NT_USER
+  fi
+else
+  echo "No startup script found — credentials required."
+  HAS_SLINGSHOT=false
 fi
 
 echo "NinjaTrader user: $NT_USER"
-
-# Calculate client hash
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 echo "Client hash: $CLIENT_HASH"
 
-# Get user project number and compute service account
 PROJECT_NUMBER=$(gcloud projects describe "$USER_PROJECT" --format="value(projectNumber)")
 USER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 echo "User service account: $USER_SA"
 
-# ─── STEP 4: GRANT SLINGSHOT MANAGER ACCESS TO USER PROJECT ──────────────────
+# ─── STEP 5: GRANT SLINGSHOT MANAGER ACCESS ──────────────────────────────────
 
 echo ""
 echo "Granting Slingshot Manager access to project '$USER_PROJECT'..."
@@ -176,15 +244,13 @@ gcloud projects add-iam-policy-binding "$USER_PROJECT" \
   --quiet
 echo "Access granted."
 
-
-# ─── STEP 6: DETACH AND REPLACE VM SCHEDULE ──────────────────────────────────
+# ─── STEP 6: CONFIGURE VM STOP SCHEDULE ──────────────────────────────────────
 
 echo ""
 echo "Configuring VM stop schedule..."
 
 STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME}"
 
-# Detach any existing resource policies from the VM
 EXISTING_POLICY=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
@@ -198,7 +264,6 @@ if [ -n "$EXISTING_POLICY" ]; then
     --resource-policies="$EXISTING_POLICY" \
     --quiet
 
-  # Delete the old policy
   echo "Deleting old policy: $EXISTING_POLICY"
   gcloud compute resource-policies delete "$EXISTING_POLICY" \
     --region=us-central1 \
@@ -206,13 +271,11 @@ if [ -n "$EXISTING_POLICY" ]; then
     --quiet 2>/dev/null || true
 fi
 
-# Delete stop policy if it already exists (for re-runs)
 gcloud compute resource-policies delete "$STOP_POLICY" \
   --region=us-central1 \
   --project="$USER_PROJECT" \
   --quiet 2>/dev/null || true
 
-# Create stop-only policy
 echo "Creating stop-only schedule (7:00 AM Pacific, Mon-Fri)..."
 gcloud compute resource-policies create instance-schedule "$STOP_POLICY" \
   --region=us-central1 \
@@ -221,7 +284,6 @@ gcloud compute resource-policies create instance-schedule "$STOP_POLICY" \
   --project="$USER_PROJECT" \
   --quiet
 
-# Attach to VM
 gcloud compute instances add-resource-policies "$VM_NAME" \
   --zone="$VM_ZONE" \
   --project="$USER_PROJECT" \
@@ -251,6 +313,7 @@ cat > /tmp/vm_config.json << EOF
 EOF
 
 gsutil cp /tmp/vm_config.json "$CONFIG_PATH"
+rm -f /tmp/vm_config.json
 echo "Config saved to $CONFIG_PATH"
 
 # ─── STEP 8: CREATE CLOUD SCHEDULER JOB ──────────────────────────────────────
@@ -258,13 +321,11 @@ echo "Config saved to $CONFIG_PATH"
 echo ""
 echo "Creating Cloud Scheduler job..."
 
-# Enable scheduler API in user project if not already enabled
 gcloud services enable cloudscheduler.googleapis.com \
   --project="$USER_PROJECT" --quiet
 
 JOB_NAME="slingshot-vm-start-$CLIENT_HASH"
 
-# Delete existing job if present
 gcloud scheduler jobs delete "$JOB_NAME" \
   --location=us-central1 \
   --project="$USER_PROJECT" \
@@ -283,15 +344,13 @@ gcloud scheduler jobs create http "$JOB_NAME" \
 
 echo "Scheduler job created: $JOB_NAME"
 
-# ─── STEP 8B: CREATE DAILY SNAPSHOT SCHEDULE ─────────────────────────────────
+# ─── STEP 9: CREATE DAILY SNAPSHOT SCHEDULE ──────────────────────────────────
 
 echo ""
 echo "Creating daily disk snapshot schedule..."
 
-# Policy name is unique per VM name + user hash
 SNAPSHOT_POLICY="slingshot-backup-${VM_NAME}-${CLIENT_HASH}"
 
-# Check if policy already exists
 EXISTING_SNAPSHOT=$(gcloud compute resource-policies describe "$SNAPSHOT_POLICY" \
   --region=us-central1 \
   --project="$USER_PROJECT" \
@@ -318,10 +377,90 @@ else
   echo "Snapshot schedule created: daily at 7:05 AM, 3 days retention."
 fi
 
-# ─── STEP 9: CLEANUP ─────────────────────────────────────────────────────────
+# ─── STEP 10: CONFIGURE METADATA IF NEEDED ───────────────────────────────────
+
+if [ "$HAS_SLINGSHOT" = false ]; then
+  echo ""
+  echo "========================================"
+  echo "  Startup Script Configuration"
+  echo "========================================"
+  echo ""
+
+  echo "Enter NT Password (NinjaTrader):"
+  NT_PASS=$(prompt_password_confirmed "NT Password" "none" | tr -d '\n\r')
+
+  echo ""
+  echo "Enter Admin Password (Windows Server):"
+  echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
+  SV_PASS=$(prompt_password_confirmed "Admin Password" "windows" | tr -d '\n\r')
+
+  # Stop VM if running
+  STATUS=$(gcloud compute instances describe "$VM_NAME" \
+    --project="$USER_PROJECT" \
+    --zone="$VM_ZONE" \
+    --format="value(status)")
+  if [[ "$STATUS" == "RUNNING" ]]; then
+    echo "Stopping VM to apply metadata..."
+    gcloud compute instances stop "$VM_NAME" \
+      --project="$USER_PROJECT" \
+      --zone="$VM_ZONE" --quiet
+  fi
+
+  echo "Writing startup script..."
+  TEMP_PS1="/tmp/temp_startup.ps1"
+
+  cat << 'EOF' > "$TEMP_PS1"
+$SlingshotDir = "C:\Slingshot"; $InstallDir = "C:\SlingshotInstall"
+if (!(Get-LocalUser -Name "adminuser" -ErrorAction SilentlyContinue)) {
+    $SecurePassword = ConvertTo-SecureString "PLACEHOLDER_SV_PASS" -AsPlainText -Force
+    New-LocalUser -Name "adminuser" -Password $SecurePassword -FullName "Slingshot Admin"
+    Add-LocalGroupMember -Group "Administrators" -Member "adminuser"
+}
+if (!(Test-Path $SlingshotDir)) { New-Item -ItemType Directory -Force -Path $SlingshotDir }
+if (!(Test-Path $InstallDir)) { New-Item -ItemType Directory -Force -Path $InstallDir }
+$RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+Remove-ItemProperty -Path $RegPath -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
+Set-ItemProperty -Path $RegPath -Name "AutoAdminLogon" -Value "1"
+Set-ItemProperty -Path $RegPath -Name "DefaultUserName" -Value "adminuser"
+Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value "PLACEHOLDER_SV_PASS"
+[Environment]::SetEnvironmentVariable("SLINGSHOT_BACKUP_PATH", "CLIENT_HASH_PLACEHOLDER/backup", "Machine")
+gsutil cp "gs://slingshot-public-release/binaries/SlingshotWorker.exe" "$SlingshotDir/"
+gsutil cp "gs://slingshot-public-release/installers/SlingshotSetup.exe" "$InstallDir/"
+Start-Process -FilePath "$InstallDir\SlingshotSetup.exe" -ArgumentList "PLACEHOLDER_ARGS" -Wait
+EOF
+
+  export CONF_SV_PASS="$SV_PASS"
+  export CONF_NT_PASS="$NT_PASS"
+  export CONF_SS_USER="$NT_USER"
+  export CONF_CLIENT_HASH="$CLIENT_HASH"
+  export CONF_TEMP_PS1="$TEMP_PS1"
+
+  python3 << 'PYEOF'
+import os
+content = open(os.environ["CONF_TEMP_PS1"]).read()
+content = content.replace("PLACEHOLDER_SV_PASS", os.environ["CONF_SV_PASS"])
+content = content.replace("PLACEHOLDER_ARGS", "{} {} {}".format(os.environ["CONF_SS_USER"], os.environ["CONF_NT_PASS"], os.environ["CONF_SV_PASS"]))
+content = content.replace("CLIENT_HASH_PLACEHOLDER", os.environ["CONF_CLIENT_HASH"])
+open(os.environ["CONF_TEMP_PS1"], "w").write(content)
+PYEOF
+
+  gcloud compute instances add-metadata "$VM_NAME" \
+    --project="$USER_PROJECT" \
+    --zone="$VM_ZONE" \
+    --metadata-from-file=windows-startup-script-ps1="$TEMP_PS1"
+  rm -f "$TEMP_PS1"
+
+  echo "Starting VM to trigger installation..."
+  gcloud compute instances start "$VM_NAME" \
+    --project="$USER_PROJECT" \
+    --zone="$VM_ZONE" --quiet
+
+  echo "Startup script applied and VM started."
+fi
+
+# ─── DONE ─────────────────────────────────────────────────────────────────────
 
 echo ""
-rm -f /tmp/vm_config.json
 echo "========================================"
 echo "  Setup complete!"
 echo "  VM '$VM_NAME' will start at 5:45 AM"
