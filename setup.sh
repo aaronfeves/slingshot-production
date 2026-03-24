@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — Slingshot VM Manager Setup v2.0
+# setup.sh — Slingshot VM Manager Setup v2.1
 # Run this in GCP Cloud Shell
 
 set -e
@@ -9,6 +9,7 @@ MANAGED_SA="slingshot-manager@slingshot-managed-services.iam.gserviceaccount.com
 FUNCTION_URL="https://slingshot-vm-manager-aliasnpt5a-uc.a.run.app"
 STATE_BUCKET="slingshot-states"
 ZONE_PRIORITY=("us-central1-a" "us-central1-b" "us-central1-f")
+ZONE_SEARCH=("us-central1-a" "us-central1-b" "us-central1-c" "us-central1-d" "us-central1-e" "us-central1-f")
 
 # ─── PASSWORD VALIDATION FUNCTIONS ───────────────────────────────────────────
 
@@ -65,7 +66,7 @@ prompt_password_confirmed() {
 
 echo ""
 echo "========================================"
-echo "  Slingshot VM Manager Setup v2.0"
+echo "  Slingshot VM Manager Setup v2.1"
 echo "========================================"
 echo ""
 
@@ -147,7 +148,7 @@ echo ""
 echo "Reading VM configuration..."
 
 VM_ZONE=""
-for ZONE in "${ZONE_PRIORITY[@]}"; do
+for ZONE in "${ZONE_SEARCH[@]}"; do
   if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$USER_PROJECT" &>/dev/null; then
     VM_ZONE="$ZONE"
     break
@@ -155,7 +156,7 @@ for ZONE in "${ZONE_PRIORITY[@]}"; do
 done
 
 if [ -z "$VM_ZONE" ]; then
-  echo "ERROR: Could not find VM '$VM_NAME' in any us-central1 zone."
+  echo "ERROR: Could not find VM in any us-central1 zone (searched a,b,c,d,e,f)."
   exit 1
 fi
 
@@ -205,18 +206,16 @@ if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
   HAS_SLINGSHOT=true
   echo "Startup script already configured."
 
-
+  # Extract NT username from existing metadata
   NT_USER=$(echo "$EXISTING_METADATA" \
-    | grep -oP '(?<=\$args = ")[^@]+@[^"! ]+' \
-    | head -1 || true)
+    | grep -oP '(?<=\$args = ")[^@]+@[^"! ]+' | head -1 || true)
 
-  # Fallback for hand-built or older format
+  # If not found with that pattern try ArgumentList pattern
   if [ -z "$NT_USER" ]; then
     NT_USER=$(echo "$EXISTING_METADATA" \
-      | grep -oP '(?<=ArgumentList ")[^@ ]+@[^" ]+' \
+      | grep -oP '(?<=ArgumentList ")[^ ]+' \
       | head -1 || true)
   fi
-
 
   if [ -z "$NT_USER" ]; then
     echo ""
