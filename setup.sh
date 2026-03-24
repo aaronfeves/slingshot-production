@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — Slingshot VM Manager Setup v2.1
+# setup.sh — Slingshot VM Manager Setup v2.2
 # Run this in GCP Cloud Shell
 
 set -e
@@ -66,7 +66,7 @@ prompt_password_confirmed() {
 
 echo ""
 echo "========================================"
-echo "  Slingshot VM Manager Setup v2.1"
+echo "  Slingshot VM Manager Setup v2.2"
 echo "========================================"
 echo ""
 
@@ -224,6 +224,14 @@ if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
 else
   echo "No startup script found — credentials required."
   HAS_SLINGSHOT=false
+  echo ""
+  read -rp "Enter your NinjaTrader username (email): " NT_USER
+fi
+
+# Validate NT_USER is not empty
+if [ -z "$NT_USER" ]; then
+  echo "ERROR: NinjaTrader username cannot be empty."
+  exit 1
 fi
 
 echo "NinjaTrader user: $NT_USER"
