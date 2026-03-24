@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — Slingshot VM Manager Setup v2.2
+# setup.sh — Slingshot VM Manager Setup v2.3
 # Run this in GCP Cloud Shell
 
 set -e
@@ -66,7 +66,7 @@ prompt_password_confirmed() {
 
 echo ""
 echo "========================================"
-echo "  Slingshot VM Manager Setup v2.2"
+echo "  Slingshot VM Manager Setup v2.3"
 echo "========================================"
 echo ""
 
@@ -203,35 +203,54 @@ EXISTING_METADATA=$(gcloud compute instances describe "$VM_NAME" \
 
 HAS_SLINGSHOT=false
 if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
-  HAS_SLINGSHOT=true
-  echo "Startup script already configured."
 
-  # Extract NT username from existing metadata
-  NT_USER=$(echo "$EXISTING_METADATA" \
-    | grep -oP '(?<=\$args = ")[^@]+@[^"! ]+' | head -1 || true)
+  # Check if $args has 3 arguments (username + 2 passwords)
+  ARGS_LINE=$(echo "$EXISTING_METADATA" | grep '\$args = "' || true)
+  ARG_COUNT=$(echo "$ARGS_LINE" | grep -oP '(?<=\$args = ")[^"]+' | tr ' ' '\n' | grep -c '.' || true)
 
-  # If not found with that pattern try ArgumentList pattern
-  if [ -z "$NT_USER" ]; then
+  if [ "$ARG_COUNT" -ge 3 ]; then
+    HAS_SLINGSHOT=true
+    echo "Startup script already configured."
+
+    # Extract first argument (NT username) — works for email or non-email usernames
     NT_USER=$(echo "$EXISTING_METADATA" \
-      | grep -oP '(?<=ArgumentList ")[^ ]+' \
+      | grep -oP '(?<=\$args = ")[^ "]+' \
       | head -1 || true)
-  fi
 
-  if [ -z "$NT_USER" ]; then
-    echo ""
-    read -rp "Enter your NinjaTrader username (email): " NT_USER
+    # Fallback for ArgumentList format
+    if [ -z "$NT_USER" ]; then
+      NT_USER=$(echo "$EXISTING_METADATA" \
+        | grep -oP '(?<=ArgumentList ")[^ "]+' \
+        | head -1 || true)
+    fi
+
+    if [ -z "$NT_USER" ]; then
+      echo ""
+      while [ -z "$NT_USER" ]; do
+        read -rp "Enter your NinjaTrader username: " NT_USER
+        if [ -z "$NT_USER" ]; then
+          echo "NinjaTrader username cannot be empty. Please try again."
+        fi
+      done
+    fi
+  else
+    echo "Startup script found but incomplete — credentials required."
+    HAS_SLINGSHOT=false
   fi
 else
   echo "No startup script found — credentials required."
   HAS_SLINGSHOT=false
-  echo ""
-  read -rp "Enter your NinjaTrader username (email): " NT_USER
 fi
 
-# Validate NT_USER is not empty
-if [ -z "$NT_USER" ]; then
-  echo "ERROR: NinjaTrader username cannot be empty."
-  exit 1
+# If HAS_SLINGSHOT is false, prompt for NT username
+if [ "$HAS_SLINGSHOT" = false ] && [ -z "$NT_USER" ]; then
+  echo ""
+  while [ -z "$NT_USER" ]; do
+    read -rp "Enter your NinjaTrader username: " NT_USER
+    if [ -z "$NT_USER" ]; then
+      echo "NinjaTrader username cannot be empty. Please try again."
+    fi
+  done
 fi
 
 echo "NinjaTrader user: $NT_USER"
