@@ -262,14 +262,19 @@ USER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 echo "User service account: $USER_SA"
 
 # ─── STEP 5: GRANT SLINGSHOT MANAGER ACCESS ──────────────────────────────────
-
 echo ""
+
 echo "Granting Slingshot Manager access to project '$USER_PROJECT'..."
-gcloud projects add-iam-policy-binding "$USER_PROJECT" \
+if ! gcloud projects add-iam-policy-binding "$USER_PROJECT" \
   --member="serviceAccount:$MANAGED_SA" \
   --role="roles/compute.instanceAdmin.v1" \
-  --quiet
-echo "Access granted."
+  --quiet; then
+  echo "WARNING: Could not grant Slingshot Manager access. User will need to run setup.sh themselves to complete IAM grant."
+  IAM_GRANTED=false
+else
+  echo "Access granted."
+  IAM_GRANTED=true
+fi
 
 # ─── STEP 6: CONFIGURE VM STOP SCHEDULE ──────────────────────────────────────
 
@@ -486,6 +491,9 @@ PYEOF
 fi
 
 # ─── DONE ─────────────────────────────────────────────────────────────────────
+if [ "$IAM_GRANTED" = false ]; then
+  echo "⚠️  IMPORTANT: IAM grant failed. Please ask the user to run setup.sh to complete setup."
+fi
 
 echo ""
 echo "========================================"
