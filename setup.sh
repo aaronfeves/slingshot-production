@@ -8,8 +8,6 @@ MANAGED_PROJECT="slingshot-managed-services"
 MANAGED_SA="slingshot-manager@slingshot-managed-services.iam.gserviceaccount.com"
 FUNCTION_URL="https://slingshot-vm-manager-aliasnpt5a-uc.a.run.app"
 STATE_BUCKET="slingshot-states"
-ZONE_PRIORITY=("us-central1-a" "us-central1-b" "us-central1-f")
-ZONE_SEARCH=("us-central1-a" "us-central1-b" "us-central1-c" "us-central1-d" "us-central1-e" "us-central1-f" "us-east5-a")
 
 # ─── PASSWORD VALIDATION FUNCTIONS ───────────────────────────────────────────
 
@@ -153,16 +151,13 @@ echo "Selected VM: $VM_NAME"
 echo ""
 echo "Reading VM configuration..."
 
-VM_ZONE=""
-for ZONE in "${ZONE_SEARCH[@]}"; do
-  if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$USER_PROJECT" &>/dev/null; then
-    VM_ZONE="$ZONE"
-    break
-  fi
-done
+VM_ZONE=$(gcloud compute instances list \
+  --project="$USER_PROJECT" \
+  --filter="name=$VM_NAME" \
+  --format="value(zone)" 2>/dev/null | awk -F'/' '{print $NF}')
 
 if [ -z "$VM_ZONE" ]; then
-  echo "ERROR: Could not find VM in any searched zone."
+  echo "ERROR: Could not determine zone for VM '$VM_NAME'."
   exit 1
 fi
 
