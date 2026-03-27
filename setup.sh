@@ -41,9 +41,15 @@ prompt_password_confirmed() {
     local validate="$2"
     local result=""
 
+    if [ "$validate" == "windows" ]; then
+        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
+    fi
+
     while true; do
-        read -s -p "$prompt: " pass1; echo ""
-        read -s -p "Confirm $prompt: " pass2; echo ""
+        echo "$prompt:"
+        read -s pass1; echo ""
+        echo "Confirm $prompt:"
+        read -s pass2; echo ""
 
         if [ "$pass1" != "$pass2" ]; then
             echo "Passwords do not match. Please try again."
@@ -281,7 +287,9 @@ fi
 echo ""
 echo "Configuring VM stop schedule..."
 
-STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME}"
+  # GCP resource policy names are limited to 63 characters.
+  # "sched-" (6) + hash (10) + "-" (1) = 17 reserved, leaving 46 for server name.
+  STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME:0:46}"
 
 EXISTING_POLICY=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
@@ -423,7 +431,6 @@ if [ "$HAS_SLINGSHOT" = false ]; then
 
   echo ""
   echo "Enter Admin Password (Windows Server):"
-  echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
   SV_PASS=$(prompt_password_confirmed "Admin Password" "windows" | tr -d '\n\r')
 
   # Stop VM if running
