@@ -42,23 +42,23 @@ prompt_password_confirmed() {
     local result=""
 
     if [ "$validate" == "windows" ]; then
-        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
+        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters" >&2
     fi
 
     while true; do
-        echo "$prompt:"
-        read -s pass1; echo ""
-        echo "Confirm $prompt:"
-        read -s pass2; echo ""
+        echo "$prompt:" >&2
+        read -s pass1; echo "" >&2
+        echo "Confirm $prompt:" >&2
+        read -s pass2; echo "" >&2
 
         if [ "$pass1" != "$pass2" ]; then
-            echo "Passwords do not match. Please try again."
+            echo "Passwords do not match. Please try again." >&2
             continue
         fi
 
         if [ "$validate" == "windows" ]; then
             if ! validate_windows_password "$pass1"; then
-                echo "Please try again."
+                echo "Please try again." >&2
                 continue
             fi
         fi
@@ -162,11 +162,12 @@ for ZONE in "${ZONE_SEARCH[@]}"; do
 done
 
 if [ -z "$VM_ZONE" ]; then
-  echo "ERROR: Could not find VM in any us-central1 zone (searched a,b,c,d,e,f)."
+  echo "ERROR: Could not find VM in any searched zone."
   exit 1
 fi
 
-echo "Zone: $VM_ZONE"
+VM_REGION=$(echo "$VM_ZONE" | sed 's/-[a-z]$//')
+echo "Zone: $VM_ZONE  |  Region: $VM_REGION"
 
 MACHINE_TYPE=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
@@ -306,19 +307,19 @@ if [ -n "$EXISTING_POLICY" ]; then
 
   echo "Deleting old policy: $EXISTING_POLICY"
   gcloud compute resource-policies delete "$EXISTING_POLICY" \
-    --region=us-central1 \
+    --region=$VM_REGION \
     --project="$USER_PROJECT" \
     --quiet 2>/dev/null || true
 fi
 
 gcloud compute resource-policies delete "$STOP_POLICY" \
-  --region=us-central1 \
+  --region=$VM_REGION \
   --project="$USER_PROJECT" \
   --quiet 2>/dev/null || true
 
 echo "Creating stop-only schedule (7:00 AM Pacific, Mon-Fri)..."
 gcloud compute resource-policies create instance-schedule "$STOP_POLICY" \
-  --region=us-central1 \
+  --region=$VM_REGION \
   --vm-stop-schedule="0 7 * * 1-5" \
   --timezone="America/Los_Angeles" \
   --project="$USER_PROJECT" \
@@ -346,7 +347,7 @@ cat > /tmp/vm_config.json << EOF
   "machine_type": "$MACHINE_TYPE",
   "disk_name": "$DISK_NAME",
   "static_ip_name": "$STATIC_IP_NAME",
-  "region": "us-central1",
+  "region": "$VM_REGION",
   "nt_user": "$NT_USER",
   "client_hash": "$CLIENT_HASH"
 }
@@ -367,12 +368,12 @@ gcloud services enable cloudscheduler.googleapis.com \
 JOB_NAME="slingshot-vm-start-$CLIENT_HASH"
 
 gcloud scheduler jobs delete "$JOB_NAME" \
-  --location=us-central1 \
+  --location=$VM_REGION \
   --project="$USER_PROJECT" \
   --quiet 2>/dev/null || true
 
 gcloud scheduler jobs create http "$JOB_NAME" \
-  --location=us-central1 \
+  --location=$VM_REGION \
   --schedule="45 5 * * 1-5" \
   --time-zone="America/Los_Angeles" \
   --uri="$FUNCTION_URL" \
@@ -392,7 +393,7 @@ echo "Creating daily disk snapshot schedule..."
 SNAPSHOT_POLICY="slingshot-backup-${VM_NAME}-${CLIENT_HASH}"
 
 EXISTING_SNAPSHOT=$(gcloud compute resource-policies describe "$SNAPSHOT_POLICY" \
-  --region=us-central1 \
+  --region=$VM_REGION \
   --project="$USER_PROJECT" \
   --format="value(name)" 2>/dev/null || true)
 
@@ -400,7 +401,7 @@ if [ -n "$EXISTING_SNAPSHOT" ]; then
   echo "Snapshot policy already exists, skipping creation."
 else
   gcloud compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" \
-    --region=us-central1 \
+    --region=$VM_REGION \
     --max-retention-days=3 \
     --on-source-disk-delete=keep-auto-snapshots \
     --daily-schedule \
