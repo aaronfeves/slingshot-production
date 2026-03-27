@@ -7,7 +7,6 @@ set -e
 MANAGED_SA="slingshot-manager@slingshot-managed-services.iam.gserviceaccount.com"
 FUNCTION_URL="https://slingshot-vm-manager-aliasnpt5a-uc.a.run.app"
 STATE_BUCKET="slingshot-states"
-ZONE_SEARCH=("us-central1-a" "us-central1-b" "us-central1-c" "us-central1-d" "us-central1-e" "us-central1-f")
 
 # ─── PASSWORD VALIDATION FUNCTIONS ───────────────────────────────────────────
 
@@ -180,18 +179,13 @@ echo "----------------------------------------------------------"
 echo ""
 echo ">>> Detecting VM zone..."
 
-VM_ZONE=""
-for ZONE in "${ZONE_SEARCH[@]}"; do
-  if gcloud compute instances describe "$SERVER_NAME" \
-      --zone="$ZONE" \
-      --project="$GOOGLE_CLOUD_PROJECT" &>/dev/null; then
-    VM_ZONE="$ZONE"
-    break
-  fi
-done
+VM_ZONE=$(gcloud compute instances list \
+  --project="$GOOGLE_CLOUD_PROJECT" \
+  --filter="name=$SERVER_NAME" \
+  --format="value(zone)" 2>/dev/null | awk -F'/' '{print $NF}')
 
 if [ -z "$VM_ZONE" ]; then
-  echo "WARNING: Could not auto-detect VM zone (searched us-central1 a–f)."
+  echo "WARNING: Could not determine zone for VM '$SERVER_NAME'."
   echo "Scheduler and IAM setup will be skipped — run setup.sh to complete."
 else
   echo "VM found in zone: $VM_ZONE"
