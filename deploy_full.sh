@@ -40,8 +40,10 @@ prompt_password_confirmed() {
     local result=""
 
     while true; do
-        read -s -p "$prompt: " pass1; echo ""
-        read -s -p "Confirm $prompt: " pass2; echo ""
+        echo "$prompt:"
+        read -s pass1; echo ""
+        echo "Confirm $prompt:"
+        read -s pass2; echo ""
 
         if [ "$pass1" != "$pass2" ]; then
             echo "Passwords do not match. Please try again."
@@ -198,7 +200,7 @@ else
   if ! gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
     --member="serviceAccount:$MANAGED_SA" \
     --role="roles/compute.instanceAdmin.v1" \
-    --quiet; then
+    --quiet > /dev/null 2>&1; then
     echo "WARNING: IAM grant failed. Central management may not work until this is resolved."
     IAM_GRANTED=false
   else
@@ -211,7 +213,9 @@ else
   echo ""
   echo ">>> Creating VM stop schedule (7:00 AM Pacific, Mon-Fri)..."
 
-  STOP_POLICY="sched-${CLIENT_HASH}-${SERVER_NAME}"
+  # GCP resource policy names are limited to 63 characters.
+  # "sched-" (6) + hash (10) + "-" (1) = 17 reserved, leaving 46 for server name.
+  STOP_POLICY="sched-${CLIENT_HASH}-${SERVER_NAME:0:46}"
 
   # Clean up if a policy with this name already exists (shouldn't on a new
   # deploy, but handles reruns safely)
