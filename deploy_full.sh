@@ -211,22 +211,43 @@ else
     IAM_GRANTED=true
   fi
 
-  # ─── 8. CREATE VM STOP SCHEDULE ────────────────────────────────────────────
+  # ─── 8. REPLACE TERRAFORM SCHEDULE WITH STOP-ONLY ──────────────────────────
 
   echo ""
-  echo ">>> Creating VM stop schedule (7:00 AM Pacific, Mon-Fri)..."
+  echo ">>> Configuring VM stop schedule (7:00 AM Pacific, Mon-Fri)..."
 
   # GCP resource policy names are limited to 63 characters.
   # "sched-" (6) + hash (10) + "-" (1) = 17 reserved, leaving 46 for server name.
   STOP_POLICY="sched-${CLIENT_HASH}-${SERVER_NAME:0:46}"
 
-  # Clean up if a policy with this name already exists (shouldn't on a new
-  # deploy, but handles reruns safely)
+  # Detach and delete whatever Terraform created (start+stop policy)
+  EXISTING_POLICY=$(gcloud compute instances describe "$SERVER_NAME" \
+    --zone="$VM_ZONE" \
+    --project="$GOOGLE_CLOUD_PROJECT" \
+    --format="value(resourcePolicies[0])" 2>/dev/null | awk -F'/' '{print $NF}')
+
+  if [ -n "$EXISTING_POLICY" ]; then
+    echo "Detaching existing schedule: $EXISTING_POLICY"
+    gcloud compute instances remove-resource-policies "$SERVER_NAME" \
+      --zone="$VM_ZONE" \
+      --project="$GOOGLE_CLOUD_PROJECT" \
+      --resource-policies="$EXISTING_POLICY" \
+      --quiet
+
+    echo "Deleting old policy: $EXISTING_POLICY"
+    gcloud compute resource-policies delete "$EXISTING_POLICY" \
+      --region=us-central1 \
+      --project="$GOOGLE_CLOUD_PROJECT" \
+      --quiet 2>/dev/null || true
+  fi
+
+  # Safety delete in case stop-only policy already exists from a previous run
   gcloud compute resource-policies delete "$STOP_POLICY" \
     --region=us-central1 \
     --project="$GOOGLE_CLOUD_PROJECT" \
     --quiet 2>/dev/null || true
 
+  echo "Creating stop-only schedule..."
   gcloud compute resource-policies create instance-schedule "$STOP_POLICY" \
     --region=us-central1 \
     --vm-stop-schedule="0 7 * * 1-5" \
