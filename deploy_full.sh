@@ -39,6 +39,10 @@ prompt_password_confirmed() {
     local validate="$2"
     local result=""
 
+    if [ "$validate" == "windows" ]; then
+        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
+    fi
+
     while true; do
         echo "$prompt:"
         read -s pass1; echo ""
@@ -125,7 +129,6 @@ while [ -z "$SERVER_NAME" ]; do read -rp "Enter Server Name: " SERVER_NAME; done
 echo ""
 
 echo "Enter Windows Admin Password:"
-echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
 WIN_PASS=$(prompt_password_confirmed "Admin Password" "windows")
 echo ""
 
