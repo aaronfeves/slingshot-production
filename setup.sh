@@ -9,7 +9,7 @@ MANAGED_SA="slingshot-manager@slingshot-managed-services.iam.gserviceaccount.com
 FUNCTION_URL="https://slingshot-vm-manager-aliasnpt5a-uc.a.run.app"
 STATE_BUCKET="slingshot-states"
 ZONE_PRIORITY=("us-central1-a" "us-central1-b" "us-central1-f")
-ZONE_SEARCH=("us-central1-a" "us-central1-b" "us-central1-c" "us-central1-d" "us-central1-e" "us-central1-f")
+ZONE_SEARCH=("us-central1-a" "us-central1-b" "us-central1-c" "us-central1-d" "us-central1-e" "us-central1-f" "us-east5-a")
 
 # ─── PASSWORD VALIDATION FUNCTIONS ───────────────────────────────────────────
 
