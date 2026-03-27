@@ -40,23 +40,23 @@ prompt_password_confirmed() {
     local result=""
 
     if [ "$validate" == "windows" ]; then
-        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters"
+        echo "Requirements: 8+ characters, must include 3 of: uppercase, lowercase, numbers, special characters" >&2
     fi
 
     while true; do
-        echo "$prompt:"
-        read -s pass1; echo ""
-        echo "Confirm $prompt:"
-        read -s pass2; echo ""
+        echo "$prompt:" >&2
+        read -s pass1; echo "" >&2
+        echo "Confirm $prompt:" >&2
+        read -s pass2; echo "" >&2
 
         if [ "$pass1" != "$pass2" ]; then
-            echo "Passwords do not match. Please try again."
+            echo "Passwords do not match. Please try again." >&2
             continue
         fi
 
         if [ "$validate" == "windows" ]; then
             if ! validate_windows_password "$pass1"; then
-                echo "Please try again."
+                echo "Please try again." >&2
                 continue
             fi
         fi
