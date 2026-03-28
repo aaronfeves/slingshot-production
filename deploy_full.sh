@@ -140,33 +140,49 @@ echo ""
 CLIENT_HASH=$(echo -n "$NT_USER" | md5sum | cut -d' ' -f1 | cut -c1-10)
 echo "Client hash: $CLIENT_HASH"
 
-# ─── 4. FIND AVAILABLE ZONE ──────────────────────────────────────────────────
+# ─── 4. FIND AVAILABLE ZONE AND MACHINE TYPE ────────────────────────────────
 
-echo ">>> Finding available zone for e2-highmem-2..."
+echo ">>> Finding available machine type and zone..."
+echo ""
 
-MACHINE_TYPE="e2-highmem-2"
+MACHINE_TYPE=""
 DEPLOY_ZONE=""
-ZONE_CANDIDATES=("us-central1-a" "us-central1-b" "us-central1-f" "us-central1-c")
+ZONE_CANDIDATES=("us-central1-a" "us-central1-b" "us-central1-f" "us-central1-c" "us-central1-d" "us-central1-e")
 
-for ZONE in "${ZONE_CANDIDATES[@]}"; do
-  echo "  Checking $ZONE..."
-  AVAILABLE=$(gcloud compute machine-types describe "$MACHINE_TYPE" \
-    --zone="$ZONE" \
-    --project="$GOOGLE_CLOUD_PROJECT" \
-    --format="value(name)" 2>/dev/null || true)
-  if [ -n "$AVAILABLE" ]; then
-    DEPLOY_ZONE="$ZONE"
-    echo "  ✅ Available in $DEPLOY_ZONE"
-    break
-  else
-    echo "  ❌ Not available in $ZONE"
-  fi
+# Priority order: cheapest first, falling back to wider availability
+declare -A MACHINE_LABELS
+MACHINE_LABELS["e2-highmem-2"]="e2-highmem-2  (2 vCPU, 16GB — standard)"
+MACHINE_LABELS["n2-highmem-2"]="n2-highmem-2  (2 vCPU, 16GB — better CPU, ~20% more)"
+MACHINE_LABELS["n1-highmem-2"]="n1-highmem-2  (2 vCPU, 13GB — widely available fallback)"
+MACHINE_PRIORITY=("e2-highmem-2" "n2-highmem-2" "n1-highmem-2")
+
+for MT in "${MACHINE_PRIORITY[@]}"; do
+  echo "  Checking ${MACHINE_LABELS[$MT]}..."
+  for ZONE in "${ZONE_CANDIDATES[@]}"; do
+    AVAILABLE=$(gcloud compute machine-types describe "$MT" \
+      --zone="$ZONE" \
+      --project="$GOOGLE_CLOUD_PROJECT" \
+      --format="value(name)" 2>/dev/null || true)
+    if [ -n "$AVAILABLE" ]; then
+      MACHINE_TYPE="$MT"
+      DEPLOY_ZONE="$ZONE"
+      break 2
+    fi
+  done
+  echo "    ❌ Not available in any us-central1 zone"
 done
 
 if [ -z "$DEPLOY_ZONE" ]; then
-  echo "ERROR: No available zones found for $MACHINE_TYPE. Please try again later."
+  echo ""
+  echo "ERROR: No available machine types found in any us-central1 zone."
+  echo "Please try again later."
   exit 1
 fi
+
+echo ""
+echo "  ✅ Selected: ${MACHINE_LABELS[$MACHINE_TYPE]}"
+echo "  ✅ Zone:     $DEPLOY_ZONE"
+echo 
 
 # ─── 5. THE STATE LOCK ───────────────────────────────────────────────────────
 
