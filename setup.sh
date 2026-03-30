@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — Slingshot VM Manager Setup v2.3
+# setup.sh — Slingshot VM Manager Setup v2.4
 # Run this in GCP Cloud Shell
 
 set -e
@@ -70,7 +70,7 @@ prompt_password_confirmed() {
 
 echo ""
 echo "========================================"
-echo "  Slingshot VM Manager Setup v2.3"
+echo "  Slingshot VM Manager Setup v2.4"
 echo "========================================"
 echo ""
 
@@ -204,27 +204,20 @@ EXISTING_METADATA=$(gcloud compute instances describe "$VM_NAME" \
   --format="value(metadata.items[windows-startup-script-ps1])" 2>/dev/null || true)
 
 HAS_SLINGSHOT=false
+NT_USER=""
+
 if echo "$EXISTING_METADATA" | grep -q "SlingshotSetup.exe"; then
 
-  # Check if $args has 3 arguments (username + 2 passwords)
-  ARGS_LINE=$(echo "$EXISTING_METADATA" | grep '\$args = "' || true)
-  ARG_COUNT=$(echo "$ARGS_LINE" | grep -oP '(?<=\$args = ")[^"]+' | tr ' ' '\n' | grep -c '.' || true)
+  # Check if ArgumentList has 3 arguments (username + 2 passwords)
+  ARGS_LINE=$(echo "$EXISTING_METADATA" | grep 'ArgumentList' || true)
+  ARG_COUNT=$(echo "$ARGS_LINE" | grep -oP '(?<=-ArgumentList ")[^"]+' | tr ' ' '\n' | grep -c '.' || true)
 
   if [ "$ARG_COUNT" -ge 3 ]; then
     HAS_SLINGSHOT=true
     echo "Startup script already configured."
 
-    # Extract first argument (NT username) — works for email or non-email usernames
-    NT_USER=$(echo "$EXISTING_METADATA" \
-      | grep -oP '(?<=\$args = ")[^ "]+' \
-      | head -1 || true)
-
-    # Fallback for ArgumentList format
-    if [ -z "$NT_USER" ]; then
-      NT_USER=$(echo "$EXISTING_METADATA" \
-        | grep -oP '(?<=ArgumentList ")[^ "]+' \
-        | head -1 || true)
-    fi
+    # Extract first argument (NT username)
+    NT_USER=$(echo "$ARGS_LINE" | grep -oP '(?<=-ArgumentList ")[^ "]+' | head -1 || true)
 
     if [ -z "$NT_USER" ]; then
       echo ""
@@ -264,8 +257,8 @@ USER_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 echo "User service account: $USER_SA"
 
 # ─── STEP 5: GRANT SLINGSHOT MANAGER ACCESS ──────────────────────────────────
-echo ""
 
+echo ""
 echo "Granting Slingshot Manager access to project '$USER_PROJECT'..."
 if ! gcloud projects add-iam-policy-binding "$USER_PROJECT" \
   --member="serviceAccount:$MANAGED_SA" \
@@ -283,9 +276,9 @@ fi
 echo ""
 echo "Configuring VM stop schedule..."
 
-  # GCP resource policy names are limited to 63 characters.
-  # "sched-" (6) + hash (10) + "-" (1) = 17 reserved, leaving 46 for server name.
-  STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME:0:46}"
+# GCP resource policy names are limited to 63 characters.
+# "sched-" (6) + hash (10) + "-" (1) = 17 reserved, leaving 46 for server name.
+STOP_POLICY="sched-${CLIENT_HASH}-${VM_NAME:0:46}"
 
 EXISTING_POLICY=$(gcloud compute instances describe "$VM_NAME" \
   --zone="$VM_ZONE" \
@@ -363,12 +356,12 @@ gcloud services enable cloudscheduler.googleapis.com \
 JOB_NAME="slingshot-vm-start-$CLIENT_HASH"
 
 gcloud scheduler jobs delete "$JOB_NAME" \
-  --location=$VM_REGION \
+  --location=us-central1 \
   --project="$USER_PROJECT" \
   --quiet 2>/dev/null || true
 
 gcloud scheduler jobs create http "$JOB_NAME" \
-  --location=$VM_REGION \
+  --location=us-central1 \
   --schedule="45 5 * * 1-5" \
   --time-zone="America/Los_Angeles" \
   --uri="$FUNCTION_URL" \
@@ -494,6 +487,7 @@ PYEOF
 fi
 
 # ─── DONE ─────────────────────────────────────────────────────────────────────
+
 if [ "$IAM_GRANTED" = false ]; then
   echo "⚠️  IMPORTANT: IAM grant failed. Please ask the user to run setup.sh to complete setup."
 fi
